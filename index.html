@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>出貨單合併產生器 (極致滿版)</title>
+    <style>
+        body {
+            font-family: "Microsoft JhengHei", sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        
+        .control-panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            max-width: 800px;
+            margin: 0 auto 20px auto;
+        }
+
+        h2 { margin-top: 0; color: #2c3e50; }
+        
+        textarea {
+            width: 100%;
+            height: 150px;
+            padding: 12px;
+            font-size: 15px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+
+        .btn-group { margin-top: 15px; display: flex; gap: 10px; }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+        }
+        .btn-generate { background: #27ae60; color: white; }
+        .btn-print { background: #2980b9; color: white; }
+
+        /* A4 滿版對裁排版 (螢幕預覽用) */
+        #outputArea {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .a4-page {
+            width: 210mm;
+            height: 297mm;
+            background: white;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            
+            /* 移除所有外圍 padding，達到真滿版 */
+            padding: 0; 
+            margin-bottom: 20px;
+            box-sizing: border-box;
+            display: flex;
+            flex-wrap: wrap;
+            align-content: flex-start;
+            overflow: hidden; /* 強制隱藏溢出，殺死空白頁 */
+        }
+
+        .label-card {
+            width: 50%;
+            height: 25%;
+            box-sizing: border-box;
+            /* 文字內縮，避免被印表機吃字 */
+            padding: 8mm; 
+            display: flex;
+            flex-direction: column;
+            background: #fff;
+            
+            /* 裁切線：只畫右邊跟下邊 */
+            border-right: 1px dashed #888;
+            border-bottom: 1px dashed #888;
+        }
+
+        /* 消除最右側邊界的裁切線 (已經是紙張邊緣) */
+        .label-card:nth-child(even) {
+            border-right: none;
+        }
+        /* 消除最下方邊界的裁切線 (已經是紙張邊緣) */
+        .label-card:nth-child(7),
+        .label-card:nth-child(8) {
+            border-bottom: none;
+        }
+
+        .buyer-name {
+            font-size: 16px;
+            font-weight: bold;
+            border-bottom: 2px solid #2c3e50;
+            padding-bottom: 4px;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .page-indicator { font-size: 12px; color: #e74c3c; }
+        .items-container { font-size: 13px; flex-grow: 1; line-height: 1.3; }
+        .product-group { margin-bottom: 5px; word-break: break-all; }
+        .category-name {
+            font-weight: bold; color: #d35400; background: #fcf3cf;
+            display: inline-block; padding: 1px 6px; border-radius: 3px;
+            margin-bottom: 2px; font-size: 12px;
+        }
+        .item-list { padding-left: 5px; color: #222; }
+
+        /* 👑 終極列印強制設定 */
+        @media print {
+            @page {
+                size: A4 portrait;
+                margin: 0mm !important; /* 強制覆蓋所有邊距 */
+            }
+            body, html { 
+                background: white; 
+                padding: 0 !important; 
+                margin: 0 !important; 
+            }
+            .control-panel { display: none !important; }
+            #outputArea { display: block; }
+            
+            .a4-page {
+                margin: 0 !important;
+                box-shadow: none;
+                width: 210mm;
+                height: 297mm;
+                page-break-after: always;
+                page-break-inside: avoid;
+            }
+            .a4-page:last-child {
+                page-break-after: auto; 
+            }
+            .label-card { border-color: #000; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="control-panel">
+        <h2>📦 出貨單合併產生器 (極致滿版)</h2>
+        <p>資料格式：<strong>姓名 / 產品類別 / 產品清單</strong></p>
+        <textarea id="dataInput" placeholder="在此貼上資料..."></textarea>
+        <div class="btn-group">
+            <button class="btn-generate" onclick="generateLabels()">1. 合併並產生出貨單</button>
+            <button class="btn-print" onclick="window.print()">2. 輸出為 PDF</button>
+        </div>
+    </div>
+
+    <div id="outputArea"></div>
+
+    <script>
+        const ITEMS_PER_CARD = 5;
+
+        // 預設測資
+        document.getElementById('dataInput').value = `史努比-開版找我-/AnyTime賞-葬送的芙莉蓮-代抽-/B、C-4、F、G
+史努比-開版找我-/一番賞-我的英雄學院-/A賞、小賞x3
+王小明/景品/公仔x1
+王小明/扭蛋/睡眠公仔x2`;
+
+        function generateLabels() {
+            const inputData = document.getElementById('dataInput').value;
+            const lines = inputData.split('\n');
+            const ordersMap = new Map();
+
+            lines.forEach(line => {
+                if (!line.trim()) return;
+                const parts = line.split('/');
+                if (parts.length >= 3) {
+                    const name = parts[0].trim();
+                    const category = parts[1].trim();
+                    const items = parts.slice(2).join('/').trim();
+                    if (!ordersMap.has(name)) ordersMap.set(name, []);
+                    ordersMap.get(name).push({ category, items });
+                }
+            });
+
+            const outputArea = document.getElementById('outputArea');
+            outputArea.innerHTML = ''; 
+            const allLabels = [];
+
+            ordersMap.forEach((userOrders, name) => {
+                const totalItems = userOrders.length;
+                for (let i = 0; i < totalItems; i += ITEMS_PER_CARD) {
+                    const chunkItems = userOrders.slice(i, i + ITEMS_PER_CARD);
+                    let itemsHtml = '';
+                    chunkItems.forEach(order => {
+                        itemsHtml += `<div class="product-group"><div class="category-name">${order.category}</div><div class="item-list">└ ${order.items}</div></div>`;
+                    });
+                    const totalPages = Math.ceil(totalItems / ITEMS_PER_CARD);
+                    const currentPage = Math.floor(i / ITEMS_PER_CARD) + 1;
+                    const pageIndicator = totalPages > 1 ? `<span class="page-indicator">(${currentPage}/${totalPages})</span>` : '';
+                    
+                    allLabels.push(`<div class="label-card"><div class="buyer-name"><span>👤 ${name}</span>${pageIndicator}</div><div class="items-container">${itemsHtml}</div></div>`);
+                }
+            });
+
+            // 補齊 8 格
+            while (allLabels.length % 8 !== 0) {
+                allLabels.push('<div class="label-card"></div>');
+            }
+
+            for (let i = 0; i < allLabels.length; i += 8) {
+                const chunk = allLabels.slice(i, i + 8);
+                const pageDiv = document.createElement('div');
+                pageDiv.className = 'a4-page';
+                pageDiv.innerHTML = chunk.join('');
+                outputArea.appendChild(pageDiv);
+            }
+        }
+        window.onload = generateLabels;
+    </script>
+</body>
+</html>
