@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>出貨單合併產生器 (極致滿版)</title>
+    <title>出貨單合併產生器 (黑白質感設計版)</title>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <style>
         body {
             font-family: "Microsoft JhengHei", sans-serif;
             background-color: #f4f7f6;
             margin: 0;
-            padding: 20px;
+            padding: 15px;
             color: #333;
         }
         
@@ -17,13 +18,18 @@
             background: white;
             padding: 20px;
             border-radius: 8px;
-            margin-bottom: 20px;
             max-width: 800px;
             margin: 0 auto 20px auto;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         }
 
-        h2 { margin-top: 0; color: #2c3e50; }
+        h2 { margin-top: 0; font-size: 22px; color: #000; border-bottom: 2px solid #eee; padding-bottom: 10px;}
         
+        .setting-container { display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px; }
+        .setting-group { display: flex; align-items: center; flex-wrap: wrap; }
+        .setting-group label { font-weight: bold; font-size: 14px; margin-right: 10px; width: 140px; }
+        .setting-group input { padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; flex-grow: 1; max-width: 300px; }
+
         textarea {
             width: 100%;
             height: 150px;
@@ -35,19 +41,23 @@
             resize: vertical;
         }
 
-        .btn-group { margin-top: 15px; display: flex; gap: 10px; }
+        .btn-group { margin-top: 15px; display: flex; flex-wrap: wrap; gap: 10px; }
         button {
-            padding: 10px 20px;
+            padding: 12px 18px;
             font-size: 16px;
             font-weight: bold;
             cursor: pointer;
             border: none;
             border-radius: 5px;
+            transition: opacity 0.2s;
         }
-        .btn-generate { background: #27ae60; color: white; }
-        .btn-print { background: #2980b9; color: white; }
+        button:hover { opacity: 0.8; }
+        .btn-generate { background: #333; color: white; }
+        .btn-image-a4 { background: #000; color: white; width: 100%; letter-spacing: 1px; }
 
-        /* A4 滿版對裁排版 (螢幕預覽用) */
+        /* =========================================
+           A4 圖片產生區塊 
+           ========================================= */
         #outputArea {
             display: flex;
             flex-direction: column;
@@ -55,120 +65,166 @@
         }
 
         .a4-page {
-            width: 210mm;
-            height: 297mm;
+            width: 794px; 
+            height: 1123px; 
             background: white;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            
-            /* 移除所有外圍 padding，達到真滿版 */
             padding: 0; 
             margin-bottom: 20px;
-            box-sizing: border-box;
             display: flex;
             flex-wrap: wrap;
             align-content: flex-start;
-            overflow: hidden; /* 強制隱藏溢出，殺死空白頁 */
+            overflow: hidden; 
+            box-sizing: border-box;
         }
 
         .label-card {
-            width: 50%;
-            height: 25%;
+            width: 50%; 
+            height: 25%; 
             box-sizing: border-box;
-            /* 文字內縮，避免被印表機吃字 */
-            padding: 8mm; 
+            /* 👑 微調：上下邊距縮小為 12px，釋放垂直空間給第四筆資料 */
+            padding: 12px 20px; 
             display: flex;
             flex-direction: column;
             background: #fff;
+            position: relative; 
             
-            /* 裁切線：只畫右邊跟下邊 */
-            border-right: 1px dashed #888;
-            border-bottom: 1px dashed #888;
+            border-right: 1px dashed #000;
+            border-bottom: 1px dashed #000;
         }
 
-        /* 消除最右側邊界的裁切線 (已經是紙張邊緣) */
-        .label-card:nth-child(even) {
-            border-right: none;
+        .label-card:nth-child(even) { border-right: none; }
+        .label-card:nth-child(7), .label-card:nth-child(8) { border-bottom: none; }
+
+        /* 浮水印 */
+        .watermark {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-25deg);
+            font-size: 45px;
+            font-weight: 900;
+            color: #f0f0f0; 
+            white-space: nowrap;
+            pointer-events: none;
+            z-index: 0;
+            letter-spacing: 3px;
         }
-        /* 消除最下方邊界的裁切線 (已經是紙張邊緣) */
-        .label-card:nth-child(7),
-        .label-card:nth-child(8) {
-            border-bottom: none;
-        }
+
+        .content-layer { z-index: 1; position: relative; display: flex; flex-direction: column; height: 100%; }
 
         .buyer-name {
-            font-size: 16px;
+            font-size: 18px; /* 微調字體大小，保持大器但省空間 */
             font-weight: bold;
-            border-bottom: 2px solid #2c3e50;
+            border-bottom: 3px solid #000; 
             padding-bottom: 4px;
-            margin-bottom: 6px;
+            margin-bottom: 8px; /* 縮小與下方的距離 */
             display: flex;
             justify-content: space-between;
+            align-items: flex-end;
+            color: #000;
         }
 
-        .page-indicator { font-size: 12px; color: #e74c3c; }
-        .items-container { font-size: 13px; flex-grow: 1; line-height: 1.3; }
-        .product-group { margin-bottom: 5px; word-break: break-all; }
+        .page-indicator { font-size: 13px; color: #555; font-weight: normal; margin-bottom: 2px;}
+        
+        .items-container { 
+            font-size: 14px; 
+            flex-grow: 1; 
+            line-height: 1.3; /* 稍微壓縮行距防溢出 */
+            overflow: hidden; 
+            color: #000;
+        }
+        
+        .product-group { 
+            margin-bottom: 6px; 
+            word-break: break-all; 
+        }
+        
         .category-name {
-            font-weight: bold; color: #d35400; background: #fcf3cf;
-            display: inline-block; padding: 1px 6px; border-radius: 3px;
-            margin-bottom: 2px; font-size: 12px;
+            font-weight: bold; 
+            color: #000; 
+            background: transparent;
+            border-left: 4px solid #000; 
+            padding-left: 5px; 
+            margin-bottom: 2px; 
+            font-size: 13px;
+            letter-spacing: 1px;
         }
-        .item-list { padding-left: 5px; color: #222; }
+        
+        .item-list { 
+            padding-left: 9px; 
+            color: #222; 
+        }
 
-        /* 👑 終極列印強制設定 */
-        @media print {
-            @page {
-                size: A4 portrait;
-                margin: 0mm !important; /* 強制覆蓋所有邊距 */
-            }
-            body, html { 
-                background: white; 
-                padding: 0 !important; 
-                margin: 0 !important; 
-            }
-            .control-panel { display: none !important; }
-            #outputArea { display: block; }
-            
-            .a4-page {
-                margin: 0 !important;
-                box-shadow: none;
-                width: 210mm;
-                height: 297mm;
-                page-break-after: always;
-                page-break-inside: avoid;
-            }
-            .a4-page:last-child {
-                page-break-after: auto; 
-            }
-            .label-card { border-color: #000; }
+        /* 感謝語設計 */
+        .footer-thanks {
+            margin-top: auto; 
+            text-align: center;
+            font-size: 12px;
+            color: #000;
+            border-top: 1px dotted #888;
+            padding-top: 6px;
+            letter-spacing: 1px;
+            font-weight: bold;
         }
+
+        #imagesPreview {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .loading-text { color: #333; font-weight: bold; text-align: center; }
+
     </style>
 </head>
 <body>
 
     <div class="control-panel">
-        <h2>📦 出貨單合併產生器 (極致滿版)</h2>
-        <p>資料格式：<strong>姓名 / 產品類別 / 產品清單</strong></p>
+        <h2>📦 出貨單產生器 (設計感大字版)</h2>
+        
+        <div class="setting-container">
+            <div class="setting-group">
+                <label for="watermarkText">自訂浮水印 / 店名：</label>
+                <input type="text" id="watermarkText" value="THANK YOU">
+            </div>
+            <div class="setting-group">
+                <label for="footerText">自訂感謝語：</label>
+                <input type="text" id="footerText" value="感謝購買，期待下次為您服務！">
+            </div>
+        </div>
+
+        <p style="margin: 5px 0 10px 0; font-size: 14px; color: #555;">資料格式：<strong>姓名 / 產品類別 / 產品清單</strong><br>
+        (專為 1~3 筆優化，最多容納 4 筆長文字，超過自動拆單)</p>
+        
         <textarea id="dataInput" placeholder="在此貼上資料..."></textarea>
+        
         <div class="btn-group">
-            <button class="btn-generate" onclick="generateLabels()">1. 合併並產生出貨單</button>
-            <button class="btn-print" onclick="window.print()">2. 輸出為 PDF</button>
+            <button class="btn-generate" onclick="generateLabels()">1. 讀取並合併資料</button>
+            <button class="btn-image-a4" id="btnExportA4" disabled>2. 轉換成黑白 A4 大圖下載</button>
         </div>
     </div>
 
     <div id="outputArea"></div>
+    <div id="imagesPreview"></div>
 
     <script>
-        const ITEMS_PER_CARD = 5;
+        const ITEMS_PER_CARD = 4; // 維持上限 4 筆
 
         // 預設測資
         document.getElementById('dataInput').value = `史努比-開版找我-/AnyTime賞-葬送的芙莉蓮-代抽-/B、C-4、F、G
 史努比-開版找我-/一番賞-我的英雄學院-/A賞、小賞x3
-王小明/景品/公仔x1
-王小明/扭蛋/睡眠公仔x2`;
+史努比-開版找我-/景品/初音未來公仔x1
+史努比-開版找我-/扭蛋/超長名字測試大天使*2+馬+聖甲蟲+風馳骰子+G.I集卡冊
+王小明/景品/公仔x1`;
 
         function generateLabels() {
             const inputData = document.getElementById('dataInput').value;
+            // 抓取設定的值
+            const watermarkText = document.getElementById('watermarkText').value || 'THANK YOU'; 
+            const footerText = document.getElementById('footerText').value || ''; // 如果清空就留白
+
             const lines = inputData.split('\n');
             const ordersMap = new Map();
 
@@ -186,7 +242,15 @@
 
             const outputArea = document.getElementById('outputArea');
             outputArea.innerHTML = ''; 
-            const allLabels = [];
+            document.getElementById('imagesPreview').innerHTML = ''; 
+
+            if (ordersMap.size === 0) {
+                outputArea.innerHTML = '<p style="text-align:center; color:red;">請輸入資料再按產生喔！</p>';
+                document.getElementById('btnExportA4').disabled = true;
+                return;
+            }
+
+            const allLabelsHtml = [];
 
             ordersMap.forEach((userOrders, name) => {
                 const totalItems = userOrders.length;
@@ -194,30 +258,92 @@
                     const chunkItems = userOrders.slice(i, i + ITEMS_PER_CARD);
                     let itemsHtml = '';
                     chunkItems.forEach(order => {
-                        itemsHtml += `<div class="product-group"><div class="category-name">${order.category}</div><div class="item-list">└ ${order.items}</div></div>`;
+                        itemsHtml += `<div class="product-group"><div class="category-name">${order.category}</div><div class="item-list">${order.items}</div></div>`;
                     });
                     const totalPages = Math.ceil(totalItems / ITEMS_PER_CARD);
                     const currentPage = Math.floor(i / ITEMS_PER_CARD) + 1;
                     const pageIndicator = totalPages > 1 ? `<span class="page-indicator">(${currentPage}/${totalPages})</span>` : '';
                     
-                    allLabels.push(`<div class="label-card"><div class="buyer-name"><span>👤 ${name}</span>${pageIndicator}</div><div class="items-container">${itemsHtml}</div></div>`);
+                    // 動態產生底部的感謝語（如果有輸入才顯示那條虛線）
+                    const footerHtml = footerText ? `<div class="footer-thanks">${footerText}</div>` : '';
+
+                    allLabelsHtml.push(`
+                        <div class="label-card">
+                            <div class="watermark">${watermarkText}</div>
+                            <div class="content-layer">
+                                <div class="buyer-name">
+                                    <span>${name}</span>
+                                    ${pageIndicator}
+                                </div>
+                                <div class="items-container">${itemsHtml}</div>
+                                ${footerHtml}
+                            </div>
+                        </div>
+                    `);
                 }
             });
 
-            // 補齊 8 格
-            while (allLabels.length % 8 !== 0) {
-                allLabels.push('<div class="label-card"></div>');
+            while (allLabelsHtml.length % 8 !== 0) {
+                allLabelsHtml.push(`
+                    <div class="label-card">
+                        <div class="watermark">${watermarkText}</div>
+                    </div>
+                `);
             }
 
-            for (let i = 0; i < allLabels.length; i += 8) {
-                const chunk = allLabels.slice(i, i + 8);
+            for (let i = 0; i < allLabelsHtml.length; i += 8) {
+                const chunk = allLabelsHtml.slice(i, i + 8);
                 const pageDiv = document.createElement('div');
-                pageDiv.className = 'a4-page';
+                pageDiv.className = 'a4-page'; 
                 pageDiv.innerHTML = chunk.join('');
                 outputArea.appendChild(pageDiv);
             }
+
+            document.getElementById('btnExportA4').disabled = false;
         }
-        window.onload = generateLabels;
+
+        document.getElementById('btnExportA4').addEventListener('click', async function() {
+            const previewArea = document.getElementById('imagesPreview');
+            const btn = document.getElementById('btnExportA4');
+            const a4Pages = document.querySelectorAll('#outputArea .a4-page');
+            
+            btn.disabled = true;
+            previewArea.innerHTML = `<h3 class="loading-text">⏳ 正在處理 ${a4Pages.length} 頁設計版 A4 大圖...</h3>`;
+            
+            window.scrollTo(0, 0);
+            const imagesDataUrls = [];
+            
+            for (let i = 0; i < a4Pages.length; i++) {
+                try {
+                    const canvas = await html2canvas(a4Pages[i], {
+                        useCORS: true,
+                        backgroundColor: '#ffffff',
+                        scale: 2 
+                    });
+                    imagesDataUrls.push(canvas.toDataURL("image/png"));
+                } catch (err) {
+                    console.error("產生圖片錯誤:", err);
+                }
+            }
+
+            previewArea.innerHTML = '<h3 style="color:#000;">✅ 轉換完成！請長按下方圖片儲存至手機：</h3>';
+            
+            imagesDataUrls.forEach((imgDataUrl, index) => {
+                const container = document.createElement('div');
+                container.style.cssText = "width: 100%; max-width: 794px; text-align: center; margin-bottom: 20px;";
+                container.innerHTML = `<p style="font-weight: bold; color: #000; margin-bottom: 5px;">📄 第 ${index + 1} 頁 A4</p>`;
+                
+                const imgElement = document.createElement('img');
+                imgElement.src = imgDataUrl;
+                imgElement.style.width = "100%"; 
+                imgElement.style.border = "2px solid #000"; 
+                
+                container.appendChild(imgElement);
+                previewArea.appendChild(container);
+            });
+
+            btn.disabled = false;
+        });
     </script>
 </body>
 </html>
